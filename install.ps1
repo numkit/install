@@ -22,10 +22,10 @@ New-Item -ItemType Directory -Force -Path $srcDir, $binDir, $modDir, $toolchainD
 function Invoke-FastDownload([string]$url, [string]$outFile) {
     $curlExe = "$env:SystemRoot\System32\curl.exe"
     if (Test-Path $curlExe) {
-        & $curlExe -fL --retry 3 -o $outFile $url
+        & $curlExe -fL --retry 3 -o $outFile $url | Out-Host
         if ($LASTEXITCODE -eq 0 -and (Test-Path $outFile)) { return }
     }
-    Invoke-WebRequest -Uri $url -OutFile $outFile -UseBasicParsing
+    Invoke-WebRequest -Uri $url -OutFile $outFile -UseBasicParsing | Out-Null
 }
 
 function Invoke-FastExtract([string]$zipPath, [string]$destDir) {
@@ -33,7 +33,7 @@ function Invoke-FastExtract([string]$zipPath, [string]$destDir) {
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
     $tarExe = "$env:SystemRoot\System32\tar.exe"
     if (Test-Path $tarExe) {
-        & $tarExe -xf $zipPath -C $destDir
+        & $tarExe -xf $zipPath -C $destDir | Out-Host
         if ($LASTEXITCODE -eq 0) { return }
     }
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $destDir)
@@ -52,7 +52,7 @@ function Ensure-Git {
     }
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "==> Installing Git via winget..." -ForegroundColor Yellow
-        winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
+        winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Host
         if (Test-Path "C:\Program Files\Git\cmd\git.exe") {
             return "C:\Program Files\Git\cmd\git.exe"
         }
@@ -175,10 +175,10 @@ function Sync-Repo([string]$name) {
     $target = Join-Path $srcDir $name
     if (Test-Path (Join-Path $target ".git")) {
         Write-Host "==> Updating numkit/$name..." -ForegroundColor Yellow
-        & $git -C $target pull --ff-only origin main
+        & $git -C $target pull --ff-only origin main | Out-Host
     } else {
         Write-Host "==> Cloning numkit/$name..." -ForegroundColor Green
-        & $git clone --depth 1 "https://github.com/numkit/$name.git" $target
+        & $git clone --depth 1 "https://github.com/numkit/$name.git" $target | Out-Host
     }
 }
 
@@ -190,7 +190,8 @@ function Invoke-CMakeBuild([string]$projSrc) {
         "-B", $projBuild,
         "-DCMAKE_BUILD_TYPE=Release",
         "-DNUMKIT_WITH_SIMD=$simdFlag",
-        "-DNUMKIT_BUILD_TESTS=OFF"
+        "-DNUMKIT_BUILD_TESTS=OFF",
+        "-DNUMKIT_SYS_BUILD_TESTS=OFF"
     )
     if ($useZigForBuild -and -not (Test-Path (Join-Path $projBuild "CMakeCache.txt"))) {
         $cfgArgs += @(
@@ -202,8 +203,10 @@ function Invoke-CMakeBuild([string]$projSrc) {
             "-DCMAKE_C_COMPILER_ARG1=cc"
         )
     }
-    & $cmake @cfgArgs
-    & $cmake --build $projBuild --config Release --parallel $Jobs
+    & $cmake @cfgArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "CMake configure failed for $projSrc" }
+    & $cmake --build $projBuild --config Release --parallel $Jobs | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "CMake build failed for $projSrc" }
     return $projBuild
 }
 
@@ -228,18 +231,16 @@ foreach ($repo in $coreRepos) {
     Sync-Repo $repo
 }
 
+Write-Host "==> Building numkit/numkit runtime & CLI..." -ForegroundColor Cyan
+$coreBuild = Invoke-CMakeBuild (Join-Path $srcDir "numkit")
+$exePath = Find-BuiltBinary $coreBuild "numkit.exe"
+Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
+
 if (-not $NoCodegen) {
-    Write-Host "==> Building numkit runtime, CLI & AOT transpiler..." -ForegroundColor Cyan
+    Write-Host "==> Building numkit/codegen AOT transpiler..." -ForegroundColor Cyan
     $cgBuild = Invoke-CMakeBuild (Join-Path $srcDir "codegen")
-    $exePath = Find-BuiltBinary $cgBuild "numkit.exe"
-    $cgExe   = Find-BuiltBinary $cgBuild "numkit_codegen.exe"
-    Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
-    Copy-Item -Force $cgExe   (Join-Path $binDir "numkit_codegen.exe")
-} else {
-    Write-Host "==> Building numkit/numkit runtime & CLI..." -ForegroundColor Cyan
-    $coreBuild = Invoke-CMakeBuild (Join-Path $srcDir "numkit")
-    $exePath = Find-BuiltBinary $coreBuild "numkit.exe"
-    Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
+    $cgExe = Find-BuiltBinary $cgBuild "numkit_codegen.exe"
+    Copy-Item -Force $cgExe (Join-Path $binDir "numkit_codegen.exe")
 }
 
 $selectedToolboxes = @()

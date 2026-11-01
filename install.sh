@@ -216,12 +216,14 @@ cmake_build() {
             -DCMAKE_C_COMPILER_ARG1="cc" \
             -DCMAKE_BUILD_TYPE=Release \
             -DNUMKIT_WITH_SIMD="$WITH_SIMD" \
-            -DNUMKIT_BUILD_TESTS=OFF
+            -DNUMKIT_BUILD_TESTS=OFF \
+            -DNUMKIT_SYS_BUILD_TESTS=OFF
     else
         "$CMAKE_BIN" -Wno-deprecated -S "$proj_src" -B "$proj_build" \
             -DCMAKE_BUILD_TYPE=Release \
             -DNUMKIT_WITH_SIMD="$WITH_SIMD" \
-            -DNUMKIT_BUILD_TESTS=OFF
+            -DNUMKIT_BUILD_TESTS=OFF \
+            -DNUMKIT_SYS_BUILD_TESTS=OFF
     fi
     "$CMAKE_BIN" --build "$proj_build" --config Release --parallel "$JOBS"
 }
@@ -233,19 +235,14 @@ if [ "$WITH_CODEGEN" -eq 1 ]; then
     clone_or_update "codegen"
 fi
 
+echo "==> Building numkit/numkit runtime & CLI..."
+cmake_build "$SRC_DIR/numkit"
+cp "$SRC_DIR/numkit/build/numkit" "$BIN_DIR/numkit"
+
 if [ "$WITH_CODEGEN" -eq 1 ]; then
-    echo "==> Building numkit runtime, CLI & AOT transpiler..."
+    echo "==> Building numkit/codegen AOT transpiler..."
     cmake_build "$SRC_DIR/codegen"
-    if [ -f "$SRC_DIR/codegen/build/_deps/numkit/numkit" ]; then
-        cp "$SRC_DIR/codegen/build/_deps/numkit/numkit" "$BIN_DIR/numkit"
-    else
-        cp "$(find "$SRC_DIR/codegen/build" -type f -name numkit | head -n 1)" "$BIN_DIR/numkit"
-    fi
     cp "$SRC_DIR/codegen/build/numkit_codegen" "$BIN_DIR/numkit_codegen"
-else
-    echo "==> Building numkit/numkit runtime & CLI..."
-    cmake_build "$SRC_DIR/numkit"
-    cp "$SRC_DIR/numkit/build/numkit" "$BIN_DIR/numkit"
 fi
 
 if [ "$ALL_TOOLBOXES" -eq 1 ]; then
