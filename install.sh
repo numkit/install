@@ -207,7 +207,7 @@ cmake_build() {
     proj_src="$1"
     proj_build="$proj_src/build"
     if [ "$USE_ZIG" -eq 1 ] && [ ! -f "$proj_build/CMakeCache.txt" ] && [ -n "$NINJA_BIN" ]; then
-        "$CMAKE_BIN" -S "$proj_src" -B "$proj_build" \
+        "$CMAKE_BIN" -Wno-deprecated -S "$proj_src" -B "$proj_build" \
             -G Ninja \
             -DCMAKE_MAKE_PROGRAM="$NINJA_BIN" \
             -DCMAKE_CXX_COMPILER="$ZIG_BIN" \
@@ -218,7 +218,7 @@ cmake_build() {
             -DNUMKIT_WITH_SIMD="$WITH_SIMD" \
             -DNUMKIT_BUILD_TESTS=OFF
     else
-        "$CMAKE_BIN" -S "$proj_src" -B "$proj_build" \
+        "$CMAKE_BIN" -Wno-deprecated -S "$proj_src" -B "$proj_build" \
             -DCMAKE_BUILD_TYPE=Release \
             -DNUMKIT_WITH_SIMD="$WITH_SIMD" \
             -DNUMKIT_BUILD_TESTS=OFF

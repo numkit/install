@@ -185,6 +185,7 @@ function Sync-Repo([string]$name) {
 function Invoke-CMakeBuild([string]$projSrc) {
     $projBuild = Join-Path $projSrc "build"
     $cfgArgs = @(
+        "-Wno-deprecated",
         "-S", $projSrc,
         "-B", $projBuild,
         "-DCMAKE_BUILD_TYPE=Release",
