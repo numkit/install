@@ -1,6 +1,8 @@
 # install.ps1 — Official Windows PowerShell bootstrapper for NumKit
 param(
     [string]$Prefix = "$HOME\.numkit",
+    [string]$Version = "",
+    [switch]$Head = $false,
     [switch]$NoSimd = $false,
     [switch]$NoCodegen = $false,
     [switch]$AllToolboxes = $false,
@@ -155,7 +157,33 @@ function Test-HasMsvc {
     return (-not [string]::IsNullOrWhiteSpace($vsPath))
 }
 
+function Resolve-NumKitVersion([string]$gitExe) {
+    if ($Head -or ($env:NUMKIT_HEAD -eq "1")) { return "main" }
+    if (-not [string]::IsNullOrWhiteSpace($Version)) { return $Version.Trim() }
+    $rawTags = & $gitExe ls-remote --tags --refs "https://github.com/numkit/numkit.git" 2>$null
+    $bestVer = $null
+    $bestRaw = ""
+    foreach ($line in $rawTags) {
+        if ($line -match "refs/tags/(v(\d+)\.(\d+)(?:\.(\d+))?)$") {
+            $rawTag = $Matches[1]
+            $maj = [int]$Matches[2]
+            $min = [int]$Matches[3]
+            $pat = if ($Matches[4]) { [int]$Matches[4] } else { 0 }
+            $v = [Version]::new($maj, $min, $pat)
+            if (-not $bestVer -or ($v -gt $bestVer)) {
+                $bestVer = $v
+                $bestRaw = $rawTag
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($bestRaw)) { return $bestRaw }
+    return "main"
+}
+
 $git   = Ensure-Git
+$resolvedRef = Resolve-NumKitVersion $git
+Set-Content -Path (Join-Path $Prefix "VERSION") -Value $resolvedRef -Encoding Ascii -NoNewline
+
 $cmake = Ensure-CMake
 $zig   = Ensure-Zig
 $hasMsvc = Test-HasMsvc
@@ -165,6 +193,7 @@ $simdFlag = if ($NoSimd) { "OFF" } else { "ON" }
 
 Write-Host "==> NumKit Windows Source Installer" -ForegroundColor Cyan
 Write-Host "    Prefix:    $Prefix"
+Write-Host "    Version:   $resolvedRef"
 Write-Host "    CMake:     $cmake"
 Write-Host "    Zig C++:   $zig"
 Write-Host "    Toolchain: $(if ($useZigForBuild) { 'Zig C++ + Ninja' } else { 'MSVC + Zig AOT' })"
@@ -174,11 +203,12 @@ Write-Host "    Jobs:      $Jobs"
 function Sync-Repo([string]$name) {
     $target = Join-Path $srcDir $name
     if (Test-Path (Join-Path $target ".git")) {
-        Write-Host "==> Updating numkit/$name..." -ForegroundColor Yellow
-        & $git -C $target pull --ff-only origin main | Out-Host
+        Write-Host "==> Updating numkit/$name ($resolvedRef)..." -ForegroundColor Yellow
+        & $git -C $target fetch --depth 1 origin $resolvedRef | Out-Host
+        & $git -C $target checkout --force FETCH_HEAD | Out-Host
     } else {
-        Write-Host "==> Cloning numkit/$name..." -ForegroundColor Green
-        & $git clone --depth 1 "https://github.com/numkit/$name.git" $target | Out-Host
+        Write-Host "==> Cloning numkit/$name ($resolvedRef)..." -ForegroundColor Green
+        & $git clone --depth 1 --branch $resolvedRef "https://github.com/numkit/$name.git" $target | Out-Host
     }
 }
 

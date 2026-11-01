@@ -3,6 +3,8 @@
 set -eu
 
 PREFIX="${NUMKIT_PREFIX:-$HOME/.numkit}"
+VERSION_REF=""
+FORCE_HEAD="${NUMKIT_HEAD:-0}"
 WITH_SIMD="ON"
 WITH_CODEGEN=1
 ALL_TOOLBOXES=0
@@ -15,6 +17,14 @@ while [ $# -gt 0 ]; do
         --prefix)
             PREFIX="$2"
             shift 2
+            ;;
+        --version)
+            VERSION_REF="$2"
+            shift 2
+            ;;
+        --head)
+            FORCE_HEAD=1
+            shift
             ;;
         --no-simd)
             WITH_SIMD="OFF"
@@ -172,6 +182,28 @@ if ! command -v git >/dev/null 2>&1; then
     exit 1
 fi
 
+resolve_numkit_version() {
+    if [ "$FORCE_HEAD" -eq 1 ]; then
+        echo "main"
+        return
+    fi
+    if [ -n "$VERSION_REF" ]; then
+        echo "$VERSION_REF"
+        return
+    fi
+    latest_tag="$(git ls-remote --tags --refs "https://github.com/numkit/numkit.git" 2>/dev/null \
+        | sed -n 's|.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$|\1|p' \
+        | sort -V 2>/dev/null | tail -n 1 || true)"
+    if [ -n "$latest_tag" ]; then
+        echo "$latest_tag"
+    else
+        echo "main"
+    fi
+}
+
+RESOLVED_REF="$(resolve_numkit_version)"
+printf "%s" "$RESOLVED_REF" > "$PREFIX/VERSION"
+
 CMAKE_BIN="$(ensure_cmake)"
 ZIG_BIN="$(ensure_zig)"
 
@@ -186,6 +218,7 @@ fi
 
 echo "==> NumKit Source Installer"
 echo "    Prefix:  $PREFIX"
+echo "    Version: $RESOLVED_REF"
 echo "    CMake:   $CMAKE_BIN"
 echo "    Zig C++: $ZIG_BIN"
 echo "    SIMD:    $WITH_SIMD"
@@ -195,11 +228,12 @@ clone_or_update() {
     repo="$1"
     target="$SRC_DIR/$repo"
     if [ -d "$target/.git" ]; then
-        echo "==> Updating numkit/$repo..."
-        git -C "$target" pull --ff-only origin main
+        echo "==> Updating numkit/$repo ($RESOLVED_REF)..."
+        git -C "$target" fetch --depth 1 origin "$RESOLVED_REF"
+        git -C "$target" checkout --force FETCH_HEAD
     else
-        echo "==> Cloning numkit/$repo..."
-        git clone --depth 1 "https://github.com/numkit/$repo.git" "$target"
+        echo "==> Cloning numkit/$repo ($RESOLVED_REF)..."
+        git clone --depth 1 --branch "$RESOLVED_REF" "https://github.com/numkit/$repo.git" "$target"
     fi
 }
 
