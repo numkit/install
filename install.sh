@@ -1,10 +1,12 @@
 #!/usr/bin/env sh
-# install.sh — Official POSIX bootstrapper for NumKit
+# install.sh — Official POSIX source bootstrapper for NumKit
 set -eu
 
 PREFIX="${NUMKIT_PREFIX:-$HOME/.numkit}"
 WITH_SIMD="ON"
+WITH_CODEGEN=1
 ALL_TOOLBOXES=0
+USE_ZIG=0
 JOBS=""
 
 while [ $# -gt 0 ]; do
@@ -17,8 +19,16 @@ while [ $# -gt 0 ]; do
             WITH_SIMD="OFF"
             shift
             ;;
+        --no-codegen)
+            WITH_CODEGEN=0
+            shift
+            ;;
         --all-toolboxes)
             ALL_TOOLBOXES=1
+            shift
+            ;;
+        --use-zig)
+            USE_ZIG=1
             shift
             ;;
         -j|--jobs)
@@ -42,22 +52,139 @@ if [ -z "$JOBS" ]; then
     fi
 fi
 
-echo "==> NumKit Installer"
-echo "    Prefix: $PREFIX"
-echo "    SIMD:   $WITH_SIMD"
-echo "    Jobs:   $JOBS"
-
-for tool in git cmake; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "Error: required tool '$tool' not found in PATH." >&2
-        exit 1
-    fi
-done
-
 SRC_DIR="$PREFIX/src"
 BIN_DIR="$PREFIX/bin"
 MOD_DIR="$PREFIX/modules"
-mkdir -p "$SRC_DIR" "$BIN_DIR" "$MOD_DIR"
+TOOLCHAIN_DIR="$PREFIX/toolchain"
+mkdir -p "$SRC_DIR" "$BIN_DIR" "$MOD_DIR" "$TOOLCHAIN_DIR"
+
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64|amd64) ZIG_ARCH="x86_64" ;;
+    aarch64|arm64) ZIG_ARCH="aarch64" ;;
+    *) ZIG_ARCH="$ARCH" ;;
+esac
+
+ensure_zig() {
+    if [ -x "$TOOLCHAIN_DIR/zig/zig" ]; then
+        echo "$TOOLCHAIN_DIR/zig/zig"
+        return
+    fi
+    if command -v zig >/dev/null 2>&1; then
+        command -v zig
+        return
+    fi
+
+    ZIG_VER="0.13.0"
+    case "$OS" in
+        Linux)  ZIG_OS="linux" ;;
+        Darwin) ZIG_OS="macos" ;;
+        *)
+            echo "Error: automatic Zig download unsupported on OS '$OS'." >&2
+            exit 1
+            ;;
+    esac
+
+    ZIG_PKG="zig-${ZIG_OS}-${ZIG_ARCH}-${ZIG_VER}"
+    ZIG_URL="https://ziglang.org/download/${ZIG_VER}/${ZIG_PKG}.tar.xz"
+    echo "==> Downloading portable Zig C++ toolchain ($ZIG_VER)..." >&2
+    curl -fsSL "$ZIG_URL" -o "$TOOLCHAIN_DIR/${ZIG_PKG}.tar.xz"
+    rm -rf "$TOOLCHAIN_DIR/zig_tmp" "$TOOLCHAIN_DIR/zig"
+    mkdir -p "$TOOLCHAIN_DIR/zig_tmp"
+    tar -xJf "$TOOLCHAIN_DIR/${ZIG_PKG}.tar.xz" -C "$TOOLCHAIN_DIR/zig_tmp"
+    mv "$TOOLCHAIN_DIR/zig_tmp/${ZIG_PKG}" "$TOOLCHAIN_DIR/zig"
+    rm -rf "$TOOLCHAIN_DIR/zig_tmp" "$TOOLCHAIN_DIR/${ZIG_PKG}.tar.xz"
+    echo "$TOOLCHAIN_DIR/zig/zig"
+}
+
+ensure_cmake() {
+    if [ -x "$TOOLCHAIN_DIR/cmake/bin/cmake" ]; then
+        echo "$TOOLCHAIN_DIR/cmake/bin/cmake"
+        return
+    fi
+    if [ -x "$TOOLCHAIN_DIR/cmake/CMake.app/Contents/bin/cmake" ]; then
+        echo "$TOOLCHAIN_DIR/cmake/CMake.app/Contents/bin/cmake"
+        return
+    fi
+    if command -v cmake >/dev/null 2>&1; then
+        command -v cmake
+        return
+    fi
+
+    CMAKE_VER="3.30.5"
+    echo "==> Downloading portable CMake ($CMAKE_VER)..." >&2
+    rm -rf "$TOOLCHAIN_DIR/cmake_tmp" "$TOOLCHAIN_DIR/cmake"
+    mkdir -p "$TOOLCHAIN_DIR/cmake_tmp"
+    if [ "$OS" = "Linux" ]; then
+        CMAKE_PKG="cmake-${CMAKE_VER}-linux-${ZIG_ARCH}"
+        CMAKE_URL="https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/${CMAKE_PKG}.tar.gz"
+        curl -fsSL "$CMAKE_URL" -o "$TOOLCHAIN_DIR/cmake.tar.gz"
+        tar -xzf "$TOOLCHAIN_DIR/cmake.tar.gz" -C "$TOOLCHAIN_DIR/cmake_tmp"
+        mv "$TOOLCHAIN_DIR/cmake_tmp/${CMAKE_PKG}" "$TOOLCHAIN_DIR/cmake"
+        rm -rf "$TOOLCHAIN_DIR/cmake_tmp" "$TOOLCHAIN_DIR/cmake.tar.gz"
+        echo "$TOOLCHAIN_DIR/cmake/bin/cmake"
+    elif [ "$OS" = "Darwin" ]; then
+        CMAKE_PKG="cmake-${CMAKE_VER}-macos-universal"
+        CMAKE_URL="https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/${CMAKE_PKG}.tar.gz"
+        curl -fsSL "$CMAKE_URL" -o "$TOOLCHAIN_DIR/cmake.tar.gz"
+        tar -xzf "$TOOLCHAIN_DIR/cmake.tar.gz" -C "$TOOLCHAIN_DIR/cmake_tmp"
+        mv "$TOOLCHAIN_DIR/cmake_tmp/${CMAKE_PKG}" "$TOOLCHAIN_DIR/cmake"
+        rm -rf "$TOOLCHAIN_DIR/cmake_tmp" "$TOOLCHAIN_DIR/cmake.tar.gz"
+        echo "$TOOLCHAIN_DIR/cmake/CMake.app/Contents/bin/cmake"
+    else
+        echo "Error: 'cmake' not found in PATH." >&2
+        exit 1
+    fi
+}
+
+ensure_ninja() {
+    if [ -x "$TOOLCHAIN_DIR/ninja/ninja" ]; then
+        echo "$TOOLCHAIN_DIR/ninja/ninja"
+        return
+    fi
+    if command -v ninja >/dev/null 2>&1; then
+        command -v ninja
+        return
+    fi
+    NINJA_VER="1.12.1"
+    case "$OS" in
+        Linux)  NINJA_ZIP="ninja-linux.zip" ;;
+        Darwin) NINJA_ZIP="ninja-mac.zip" ;;
+        *)      echo ""; return ;;
+    esac
+    echo "==> Downloading portable Ninja ($NINJA_VER)..." >&2
+    mkdir -p "$TOOLCHAIN_DIR/ninja"
+    curl -fsSL "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VER}/${NINJA_ZIP}" -o "$TOOLCHAIN_DIR/ninja.zip"
+    unzip -qo "$TOOLCHAIN_DIR/ninja.zip" -d "$TOOLCHAIN_DIR/ninja"
+    chmod +x "$TOOLCHAIN_DIR/ninja/ninja"
+    rm -f "$TOOLCHAIN_DIR/ninja.zip"
+    echo "$TOOLCHAIN_DIR/ninja/ninja"
+}
+
+if ! command -v git >/dev/null 2>&1; then
+    echo "Error: required tool 'git' not found in PATH." >&2
+    exit 1
+fi
+
+CMAKE_BIN="$(ensure_cmake)"
+ZIG_BIN="$(ensure_zig)"
+
+if [ "$USE_ZIG" -eq 0 ] && ! command -v c++ >/dev/null 2>&1 && ! command -v g++ >/dev/null 2>&1 && ! command -v clang++ >/dev/null 2>&1; then
+    USE_ZIG=1
+fi
+
+NINJA_BIN=""
+if [ "$USE_ZIG" -eq 1 ]; then
+    NINJA_BIN="$(ensure_ninja)"
+fi
+
+echo "==> NumKit Source Installer"
+echo "    Prefix:  $PREFIX"
+echo "    CMake:   $CMAKE_BIN"
+echo "    Zig C++: $ZIG_BIN"
+echo "    SIMD:    $WITH_SIMD"
+echo "    Jobs:    $JOBS"
 
 clone_or_update() {
     repo="$1"
@@ -71,29 +198,51 @@ clone_or_update() {
     fi
 }
 
+cmake_build() {
+    proj_src="$1"
+    proj_build="$proj_src/build"
+    if [ "$USE_ZIG" -eq 1 ] && [ ! -f "$proj_build/CMakeCache.txt" ] && [ -n "$NINJA_BIN" ]; then
+        "$CMAKE_BIN" -S "$proj_src" -B "$proj_build" \
+            -G Ninja \
+            -DCMAKE_MAKE_PROGRAM="$NINJA_BIN" \
+            -DCMAKE_CXX_COMPILER="$ZIG_BIN" \
+            -DCMAKE_CXX_COMPILER_ARG1="c++" \
+            -DCMAKE_C_COMPILER="$ZIG_BIN" \
+            -DCMAKE_C_COMPILER_ARG1="cc" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNUMKIT_WITH_SIMD="$WITH_SIMD" \
+            -DNUMKIT_BUILD_TESTS=OFF
+    else
+        "$CMAKE_BIN" -S "$proj_src" -B "$proj_build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNUMKIT_WITH_SIMD="$WITH_SIMD" \
+            -DNUMKIT_BUILD_TESTS=OFF
+    fi
+    "$CMAKE_BIN" --build "$proj_build" --config Release --parallel "$JOBS"
+}
+
 for repo in value sys ops numkit; do
     clone_or_update "$repo"
 done
+if [ "$WITH_CODEGEN" -eq 1 ]; then
+    clone_or_update "codegen"
+fi
 
-echo "==> Configuring and building numkit core..."
-cmake -S "$SRC_DIR/numkit" -B "$SRC_DIR/numkit/build" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DNUMKIT_WITH_SIMD="$WITH_SIMD"
-cmake --build "$SRC_DIR/numkit/build" --config Release --parallel "$JOBS"
-
+echo "==> Building numkit/numkit runtime & CLI..."
+cmake_build "$SRC_DIR/numkit"
 cp "$SRC_DIR/numkit/build/numkit" "$BIN_DIR/numkit"
-if [ -f "$SRC_DIR/numkit/build/numkit_codegen" ]; then
-    cp "$SRC_DIR/numkit/build/numkit_codegen" "$BIN_DIR/numkit_codegen"
+
+if [ "$WITH_CODEGEN" -eq 1 ]; then
+    echo "==> Building numkit/codegen AOT transpiler..."
+    cmake_build "$SRC_DIR/codegen"
+    cp "$SRC_DIR/codegen/build/numkit_codegen" "$BIN_DIR/numkit_codegen"
 fi
 
 if [ "$ALL_TOOLBOXES" -eq 1 ]; then
     for tb in signal wavelet stats control audio comm image; do
         clone_or_update "$tb"
         echo "==> Building toolbox numkit/$tb..."
-        cmake -S "$SRC_DIR/$tb" -B "$SRC_DIR/$tb/build" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DNUMKIT_WITH_SIMD="$WITH_SIMD"
-        cmake --build "$SRC_DIR/$tb/build" --config Release --parallel "$JOBS"
+        cmake_build "$SRC_DIR/$tb"
         mkdir -p "$MOD_DIR/$tb"
         cp "$SRC_DIR/$tb/manifest.json" "$MOD_DIR/$tb/manifest.json"
         for ext in so dylib; do
@@ -108,5 +257,8 @@ fi
 
 echo ""
 echo "==> NumKit installed successfully to $BIN_DIR/numkit"
+if [ "$WITH_CODEGEN" -eq 1 ]; then
+    echo "==> AOT transpiler installed to $BIN_DIR/numkit_codegen (powered by Zig C++)"
+fi
 echo "    Add to your PATH:"
 echo "      export PATH=\"$BIN_DIR:\$PATH\""
