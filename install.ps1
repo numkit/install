@@ -228,16 +228,18 @@ foreach ($repo in $coreRepos) {
     Sync-Repo $repo
 }
 
-Write-Host "==> Building numkit/numkit runtime & CLI..." -ForegroundColor Cyan
-$coreBuild = Invoke-CMakeBuild (Join-Path $srcDir "numkit")
-$exePath = Find-BuiltBinary $coreBuild "numkit.exe"
-Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
-
 if (-not $NoCodegen) {
-    Write-Host "==> Building numkit/codegen AOT transpiler..." -ForegroundColor Cyan
+    Write-Host "==> Building numkit runtime, CLI & AOT transpiler..." -ForegroundColor Cyan
     $cgBuild = Invoke-CMakeBuild (Join-Path $srcDir "codegen")
-    $cgExe = Find-BuiltBinary $cgBuild "numkit_codegen.exe"
-    Copy-Item -Force $cgExe (Join-Path $binDir "numkit_codegen.exe")
+    $exePath = Find-BuiltBinary $cgBuild "numkit.exe"
+    $cgExe   = Find-BuiltBinary $cgBuild "numkit_codegen.exe"
+    Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
+    Copy-Item -Force $cgExe   (Join-Path $binDir "numkit_codegen.exe")
+} else {
+    Write-Host "==> Building numkit/numkit runtime & CLI..." -ForegroundColor Cyan
+    $coreBuild = Invoke-CMakeBuild (Join-Path $srcDir "numkit")
+    $exePath = Find-BuiltBinary $coreBuild "numkit.exe"
+    Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
 }
 
 $selectedToolboxes = @()
