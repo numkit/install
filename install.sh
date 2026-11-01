@@ -6,6 +6,7 @@ PREFIX="${NUMKIT_PREFIX:-$HOME/.numkit}"
 WITH_SIMD="ON"
 WITH_CODEGEN=1
 ALL_TOOLBOXES=0
+TOOLBOXES=""
 USE_ZIG=0
 JOBS=""
 
@@ -26,6 +27,10 @@ while [ $# -gt 0 ]; do
         --all-toolboxes)
             ALL_TOOLBOXES=1
             shift
+            ;;
+        --toolboxes)
+            TOOLBOXES="$(echo "$2" | tr ',' ' ')"
+            shift 2
             ;;
         --use-zig)
             USE_ZIG=1
@@ -239,7 +244,11 @@ if [ "$WITH_CODEGEN" -eq 1 ]; then
 fi
 
 if [ "$ALL_TOOLBOXES" -eq 1 ]; then
-    for tb in signal wavelet stats control audio comm image; do
+    TOOLBOXES="signal wavelet stats control audio comm image"
+fi
+
+if [ -n "$TOOLBOXES" ]; then
+    for tb in $TOOLBOXES; do
         clone_or_update "$tb"
         echo "==> Building toolbox numkit/$tb..."
         cmake_build "$SRC_DIR/$tb"

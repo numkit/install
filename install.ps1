@@ -4,17 +4,40 @@ param(
     [switch]$NoSimd = $false,
     [switch]$NoCodegen = $false,
     [switch]$AllToolboxes = $false,
+    [string[]]$Toolboxes = @(),
     [switch]$UseZig = $false,
     [int]$Jobs = [Environment]::ProcessorCount
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $srcDir       = Join-Path $Prefix "src"
 $binDir       = Join-Path $Prefix "bin"
 $modDir       = Join-Path $Prefix "modules"
 $toolchainDir = Join-Path $Prefix "toolchain"
 New-Item -ItemType Directory -Force -Path $srcDir, $binDir, $modDir, $toolchainDir | Out-Null
+
+function Invoke-FastDownload([string]$url, [string]$outFile) {
+    $curlExe = "$env:SystemRoot\System32\curl.exe"
+    if (Test-Path $curlExe) {
+        & $curlExe -fL --retry 3 -o $outFile $url
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $outFile)) { return }
+    }
+    Invoke-WebRequest -Uri $url -OutFile $outFile -UseBasicParsing
+}
+
+function Invoke-FastExtract([string]$zipPath, [string]$destDir) {
+    if (Test-Path $destDir) { Remove-Item -Recurse -Force $destDir }
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    $tarExe = "$env:SystemRoot\System32\tar.exe"
+    if (Test-Path $tarExe) {
+        & $tarExe -xf $zipPath -C $destDir
+        if ($LASTEXITCODE -eq 0) { return }
+    }
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $destDir)
+}
 
 function Ensure-Git {
     $cmd = Get-Command git -ErrorAction SilentlyContinue
@@ -53,9 +76,9 @@ function Ensure-Zig {
     $destDir = Join-Path $toolchainDir "zig"
 
     Write-Host "==> Downloading portable Zig C++ toolchain ($zigVer)..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
-    if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
-    Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+    Invoke-FastDownload $url $zipPath
+    Write-Host "==> Extracting Zig C++ toolchain..." -ForegroundColor Cyan
+    Invoke-FastExtract $zipPath $extractDir
     if (Test-Path $destDir) { Remove-Item -Recurse -Force $destDir }
     Move-Item -Path (Join-Path $extractDir $zipName) -Destination $destDir
     Remove-Item -Recurse -Force $extractDir, $zipPath -ErrorAction SilentlyContinue
@@ -88,9 +111,8 @@ function Ensure-CMake {
     $destDir = Join-Path $toolchainDir "cmake"
 
     Write-Host "==> Downloading portable CMake ($cmakeVer)..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
-    if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
-    Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+    Invoke-FastDownload $url $zipPath
+    Invoke-FastExtract $zipPath $extractDir
     if (Test-Path $destDir) { Remove-Item -Recurse -Force $destDir }
     Move-Item -Path (Join-Path $extractDir $zipName) -Destination $destDir
     Remove-Item -Recurse -Force $extractDir, $zipPath -ErrorAction SilentlyContinue
@@ -118,11 +140,10 @@ function Ensure-Ninja {
     $url = "https://github.com/ninja-build/ninja/releases/download/v$ninjaVer/ninja-win.zip"
     $zipPath = Join-Path $toolchainDir "ninja-win.zip"
     $destDir = Join-Path $toolchainDir "ninja"
-    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 
     Write-Host "==> Downloading portable Ninja ($ninjaVer)..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
-    Expand-Archive -Path $zipPath -DestinationPath $destDir -Force
+    Invoke-FastDownload $url $zipPath
+    Invoke-FastExtract $zipPath $destDir
     Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
     return $portableNinja
 }
@@ -218,18 +239,25 @@ if (-not $NoCodegen) {
     Copy-Item -Force $cgExe (Join-Path $binDir "numkit_codegen.exe")
 }
 
+$selectedToolboxes = @()
 if ($AllToolboxes) {
-    foreach ($tb in @("signal", "wavelet", "stats", "control", "audio", "comm", "image")) {
-        Sync-Repo $tb
-        Write-Host "==> Building toolbox numkit/$tb..." -ForegroundColor Cyan
-        $tbSrc = Join-Path $srcDir $tb
-        $tbBuild = Invoke-CMakeBuild $tbSrc
-        $tbModDir = Join-Path $modDir $tb
-        New-Item -ItemType Directory -Force -Path $tbModDir | Out-Null
-        Copy-Item -Force (Join-Path $tbSrc "manifest.json") (Join-Path $tbModDir "manifest.json")
-        $dllPath = Find-BuiltBinary $tbBuild "numkit_$tb.dll"
-        Copy-Item -Force $dllPath (Join-Path $tbModDir "numkit_$tb.dll")
+    $selectedToolboxes = @("signal", "wavelet", "stats", "control", "audio", "comm", "image")
+} elseif ($Toolboxes.Count -gt 0) {
+    foreach ($item in $Toolboxes) {
+        $selectedToolboxes += ($item -split "," | Where-Object { $_ -ne "" })
     }
+}
+
+foreach ($tb in $selectedToolboxes) {
+    Sync-Repo $tb
+    Write-Host "==> Building toolbox numkit/$tb..." -ForegroundColor Cyan
+    $tbSrc = Join-Path $srcDir $tb
+    $tbBuild = Invoke-CMakeBuild $tbSrc
+    $tbModDir = Join-Path $modDir $tb
+    New-Item -ItemType Directory -Force -Path $tbModDir | Out-Null
+    Copy-Item -Force (Join-Path $tbSrc "manifest.json") (Join-Path $tbModDir "manifest.json")
+    $dllPath = Find-BuiltBinary $tbBuild "numkit_$tb.dll"
+    Copy-Item -Force $dllPath (Join-Path $tbModDir "numkit_$tb.dll")
 }
 
 # Add ~/.numkit/bin to User PATH if not already present
