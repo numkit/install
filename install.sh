@@ -242,7 +242,8 @@ cp "$SRC_DIR/numkit/build/numkit" "$BIN_DIR/numkit"
 if [ "$WITH_CODEGEN" -eq 1 ]; then
     echo "==> Building numkit/codegen AOT transpiler..."
     cmake_build "$SRC_DIR/codegen"
-    cp "$SRC_DIR/codegen/build/numkit_codegen" "$BIN_DIR/numkit_codegen"
+    cp "$SRC_DIR/codegen/build/numkit-codegen" "$BIN_DIR/numkit-codegen"
+    rm -f "$BIN_DIR/numkit_codegen"
 fi
 
 if [ "$ALL_TOOLBOXES" -eq 1 ]; then
@@ -269,7 +270,7 @@ fi
 echo ""
 echo "==> NumKit installed successfully to $BIN_DIR/numkit"
 if [ "$WITH_CODEGEN" -eq 1 ]; then
-    echo "==> AOT transpiler installed to $BIN_DIR/numkit_codegen (powered by Zig C++)"
+    echo "==> AOT transpiler installed to $BIN_DIR/numkit-codegen (powered by Zig C++)"
 fi
 echo "    Add to your PATH:"
 echo "      export PATH=\"$BIN_DIR:\$PATH\""

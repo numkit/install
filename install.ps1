@@ -239,8 +239,9 @@ Copy-Item -Force $exePath (Join-Path $binDir "numkit.exe")
 if (-not $NoCodegen) {
     Write-Host "==> Building numkit/codegen AOT transpiler..." -ForegroundColor Cyan
     $cgBuild = Invoke-CMakeBuild (Join-Path $srcDir "codegen")
-    $cgExe = Find-BuiltBinary $cgBuild "numkit_codegen.exe"
-    Copy-Item -Force $cgExe (Join-Path $binDir "numkit_codegen.exe")
+    $cgExe = Find-BuiltBinary $cgBuild "numkit-codegen.exe"
+    Copy-Item -Force $cgExe (Join-Path $binDir "numkit-codegen.exe")
+    Remove-Item -Force (Join-Path $binDir "numkit_codegen.exe") -ErrorAction SilentlyContinue
 }
 
 $selectedToolboxes = @()
@@ -277,5 +278,5 @@ if ($userPath -notlike "*$binDir*") {
 Write-Host ""
 Write-Host "==> NumKit installed successfully to $binDir\numkit.exe" -ForegroundColor Green
 if (-not $NoCodegen) {
-    Write-Host "==> AOT transpiler installed to $binDir\numkit_codegen.exe (powered by Zig C++)" -ForegroundColor Green
+    Write-Host "==> AOT transpiler installed to $binDir\numkit-codegen.exe (powered by Zig C++)" -ForegroundColor Green
 }

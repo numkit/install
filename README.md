@@ -28,7 +28,7 @@ Or run with options:
 
 ## Directory Layout (`~/.numkit/`)
 
-- `~/.numkit/bin/` — compiled `numkit` CLI/REPL and `numkit_codegen` AOT transpiler
+- `~/.numkit/bin/` — compiled `numkit` CLI/REPL and `numkit-codegen` AOT transpiler
 - `~/.numkit/toolchain/` — portable hermetic `zig` (`zig c++`), `cmake`, and `ninja`
 - `~/.numkit/src/` — cloned source repositories (`value`, `sys`, `ops`, `numkit`, `codegen`, and installed toolboxes)
 - `~/.numkit/modules/` — compiled shared toolbox plugins (`.dll` / `.so` / `.dylib`) and `manifest.json` descriptors
@@ -43,7 +43,7 @@ NumKit is organized as a modular multi-repository ecosystem under [`github.com/n
 | [`numkit/sys`](https://github.com/numkit/sys) | Foundation (L0) | Virtual filesystem (`FsContext`), toolchain discovery (`zig c++`, `msvc`, `clang`, `gcc`, `cmake`, `ninja`), process runner, `PluginContext` ABI |
 | [`numkit/ops`](https://github.com/numkit/ops) | Compute (L1) | Engine-free SIMD kernels (Google Highway), BLAS, FFT, base math/array builtins, `linalg` decompositions/solvers, ODE/optim solvers, and `image_io` codecs |
 | [`numkit/numkit`](https://github.com/numkit/numkit) | Core Engine (L2) | Parser, AST, TreeWalker, Bytecode VM, reactive engine (`ReactiveSession`), `graphics`/`io`/`help`, and `pkg` manager |
-| [`numkit/codegen`](https://github.com/numkit/codegen) | Transpiler (L2) | Ahead-of-time (AOT) C++17 transpiler (`numkit_codegen`), static type inference, and C-ABI runtime bridge |
+| [`numkit/codegen`](https://github.com/numkit/codegen) | Transpiler (L2) | Ahead-of-time (AOT) C++17 transpiler (`numkit-codegen`), static type inference, and C-ABI runtime bridge |
 | [`numkit/signal`](https://github.com/numkit/signal) | Toolbox Plugin | Signal Processing Toolbox (`numkit_signal`) |
 | [`numkit/wavelet`](https://github.com/numkit/wavelet) | Toolbox Plugin | Wavelet Toolbox (`numkit_wavelet`) |
 | [`numkit/control`](https://github.com/numkit/control) | Toolbox Plugin | Control System Toolbox (`numkit_control`) |
